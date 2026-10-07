@@ -1,0 +1,31 @@
+[package]
+name = "scout-performance-bugs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+wasmer = "7.5"
+wasmtime = "49.0"
+
+[dependencies.wastrumentation]
+package = "wastrumentation"
+git = "https://github.com/aaronmunsters/wastrumentation"
+rev = "983908e7102f43eb332de848cee57fe6661d1a3c"
+
+[dependencies.wastrumentation_rust]
+package = "wastrumentation-lang-rust"
+git = "https://github.com/aaronmunsters/wastrumentation"
+rev = "983908e7102f43eb332de848cee57fe6661d1a3c"
+
+[dependencies.charlestrumentation]
+package = "wastrumentation"
+git = "https://github.com/CharlesThuys/wastrumentation"
+rev = "8251cfaeb129a3a4b9a54969b5a1ab784e6679f7" # = latest of branch 'function-toggle'
+
+[dependencies.charlestrumentation_rust]
+package = "wastrumentation-lang-rust"
+git = "https://github.com/CharlesThuys/wastrumentation"
+rev = "8251cfaeb129a3a4b9a54969b5a1ab784e6679f7" # = latest of branch 'function-toggle'
+
+[workspace]
