@@ -1,11 +1,8 @@
-// 1. run & ⏱️ an input program
-// 2. run & ⏱️ an input program instrumented with wastrumentation
-// 3. run & ⏱️ an input program instrumented with charlestrumentation
-
+use std::collections::HashSet;
 use std::ffi::OsString;
 use std::fs::{File, read_dir};
 use std::io::Write;
-use std::path::{Path, absolute};
+use std::path::{PathBuf, absolute};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -42,20 +39,29 @@ const PROGRAM_ORDER: &[&str] = &[
 fn main() -> Result<()> {
     let mut measures = File::create_new("measures.csv")?;
 
-    let runs = 1;
+    let runs = 5;
 
     let mut input_programs = fetch_input_programs()?;
 
-    let analyses: &[(&str, std::path::PathBuf)] = &[
-        ("forward", absolute("./analyses/forward/Cargo.toml")?),
+    let analyses: &[(&str, AnalysisSpec)] = &[
+        (
+            "forward",
+            AnalysisSpec {
+                path: absolute("./analyses/forward/Cargo.toml")?,
+                hooks: Hook::all_hooks(),
+            },
+        ),
         (
             "generic-apply",
-            absolute("./analyses/generic-apply/Cargo.toml")?,
+            AnalysisSpec {
+                path: absolute("./analyses/generic-apply/Cargo.toml")?,
+                hooks: HashSet::from([Hook::GenericApply]),
+            },
         ),
     ];
 
     // [input_program, analysis] -> Vec<(variant, name)>
-    let named_variants_for = |input_program: &[u8], analysis: &Path| {
+    let named_variants_for = |input_program: &[u8], analysis: &AnalysisSpec| {
         let res: anyhow::Result<_> = (|| {
             let charlestrumented_start_dis =
                 charlestrument(input_program, analysis, Start::Disabled)?;
@@ -166,11 +172,10 @@ fn time_wasmtime(input_program: &[u8]) -> anyhow::Result<Duration> {
     Ok(before_bench.elapsed())
 }
 
-fn wastrument(input_program: &[u8], analysis: &Path) -> anyhow::Result<Vec<u8>> {
+fn wastrument(input_program: &[u8], analysis: &AnalysisSpec) -> anyhow::Result<Vec<u8>> {
     use wastrumentation::{Wastrumenter, compiler::Compiles};
     use wastrumentation_rust::compile::compiler::Compiler;
     use wastrumentation_rust::compile::options::RustSource::Manifest;
-    use wastrumentation_rust::generate::analysis::Hook;
 
     let wastrumenter = {
         let an_compiler = Compiler::setup_compiler()?;
@@ -180,9 +185,9 @@ fn wastrument(input_program: &[u8], analysis: &Path) -> anyhow::Result<Vec<u8>> 
 
     let source = Manifest(
         wastrumentation_rust::compile::options::WasiSupport::Disabled,
-        absolute(analysis)?,
+        absolute(&analysis.path)?,
     );
-    let hooks = Hook::all_hooks();
+    let hooks = analysis.hooks.iter().map(Into::into).collect();
     let analysis =
         wastrumentation_rust::generate::analysis::RustAnalysisSpec { source, hooks }.into();
 
@@ -204,11 +209,19 @@ enum Start {
     Enabled,
 }
 
-fn charlestrument(input_program: &[u8], analysis: &Path, start: Start) -> anyhow::Result<Vec<u8>> {
+struct AnalysisSpec {
+    path: PathBuf,
+    hooks: HashSet<Hook>,
+}
+
+fn charlestrument(
+    input_program: &[u8],
+    analysis: &AnalysisSpec,
+    start: Start,
+) -> anyhow::Result<Vec<u8>> {
     use charlestrumentation::{Wastrumenter, compiler::Compiles};
     use charlestrumentation_rust::compile::compiler::Compiler;
     use charlestrumentation_rust::compile::options::RustSource::Manifest;
-    use charlestrumentation_rust::generate::analysis::Hook;
 
     let wastrumenter = {
         let an_compiler = Compiler::setup_compiler()?;
@@ -218,9 +231,9 @@ fn charlestrument(input_program: &[u8], analysis: &Path, start: Start) -> anyhow
 
     let source = Manifest(
         charlestrumentation_rust::compile::options::WasiSupport::Disabled,
-        absolute(analysis)?,
+        absolute(&analysis.path)?,
     );
-    let hooks = Hook::all_hooks();
+    let hooks = analysis.hooks.iter().map(Into::into).collect();
     let analysis =
         charlestrumentation_rust::generate::analysis::RustAnalysisSpec { source, hooks }.into();
 
@@ -235,4 +248,156 @@ fn charlestrument(input_program: &[u8], analysis: &Path, start: Start) -> anyhow
         .map_err(|e| anyhow::format_err!("{e:?}"))?;
 
     Ok(instrumented)
+}
+
+#[derive(Debug, Hash, PartialEq, Eq)]
+enum Hook {
+    GenericApply,
+    CallPre,
+    CallPost,
+    CallIndirectPre,
+    CallIndirectPost,
+    IfThen,
+    IfThenPost,
+    IfThenElse,
+    IfThenElsePost,
+    Branch,
+    BranchIf,
+    BranchTable,
+    Select,
+    Unary,
+    Binary,
+    Drop,
+    Return,
+    Const,
+    Local,
+    Global,
+    Store,
+    Load,
+    MemorySize,
+    MemoryGrow,
+    MemoryInit,
+    MemoryCopy,
+    MemoryFill,
+    BlockPre,
+    BlockPost,
+    LoopPre,
+    LoopPost,
+}
+
+impl Hook {
+    fn all_hooks() -> HashSet<Self> {
+        use Hook::*;
+        HashSet::from([
+            GenericApply,
+            CallPre,
+            CallPost,
+            CallIndirectPre,
+            CallIndirectPost,
+            IfThen,
+            IfThenPost,
+            IfThenElse,
+            IfThenElsePost,
+            Branch,
+            BranchIf,
+            BranchTable,
+            Select,
+            Unary,
+            Binary,
+            Drop,
+            Return,
+            Const,
+            Local,
+            Global,
+            Store,
+            Load,
+            MemorySize,
+            MemoryGrow,
+            MemoryInit,
+            MemoryCopy,
+            MemoryFill,
+            BlockPre,
+            BlockPost,
+            LoopPre,
+            LoopPost,
+        ])
+    }
+}
+
+impl Into<charlestrumentation_rust::generate::analysis::Hook> for &Hook {
+    fn into(self) -> charlestrumentation_rust::generate::analysis::Hook {
+        use charlestrumentation_rust::generate::analysis::Hook as DepHook;
+        match self {
+            Hook::GenericApply => DepHook::GenericApply,
+            Hook::CallPre => DepHook::CallPre,
+            Hook::CallPost => DepHook::CallPost,
+            Hook::CallIndirectPre => DepHook::CallIndirectPre,
+            Hook::CallIndirectPost => DepHook::CallIndirectPost,
+            Hook::IfThen => DepHook::IfThen,
+            Hook::IfThenPost => DepHook::IfThenPost,
+            Hook::IfThenElse => DepHook::IfThenElse,
+            Hook::IfThenElsePost => DepHook::IfThenElsePost,
+            Hook::Branch => DepHook::Branch,
+            Hook::BranchIf => DepHook::BranchIf,
+            Hook::BranchTable => DepHook::BranchTable,
+            Hook::Select => DepHook::Select,
+            Hook::Unary => DepHook::Unary,
+            Hook::Binary => DepHook::Binary,
+            Hook::Drop => DepHook::Drop,
+            Hook::Return => DepHook::Return,
+            Hook::Const => DepHook::Const,
+            Hook::Local => DepHook::Local,
+            Hook::Global => DepHook::Global,
+            Hook::Store => DepHook::Store,
+            Hook::Load => DepHook::Load,
+            Hook::MemorySize => DepHook::MemorySize,
+            Hook::MemoryGrow => DepHook::MemoryGrow,
+            Hook::MemoryInit => DepHook::MemoryInit,
+            Hook::MemoryCopy => DepHook::MemoryCopy,
+            Hook::MemoryFill => DepHook::MemoryFill,
+            Hook::BlockPre => DepHook::BlockPre,
+            Hook::BlockPost => DepHook::BlockPost,
+            Hook::LoopPre => DepHook::LoopPre,
+            Hook::LoopPost => DepHook::LoopPost,
+        }
+    }
+}
+
+impl Into<wastrumentation_rust::generate::analysis::Hook> for &Hook {
+    fn into(self) -> wastrumentation_rust::generate::analysis::Hook {
+        use wastrumentation_rust::generate::analysis::Hook as DepHook;
+        match self {
+            Hook::GenericApply => DepHook::GenericApply,
+            Hook::CallPre => DepHook::CallPre,
+            Hook::CallPost => DepHook::CallPost,
+            Hook::CallIndirectPre => DepHook::CallIndirectPre,
+            Hook::CallIndirectPost => DepHook::CallIndirectPost,
+            Hook::IfThen => DepHook::IfThen,
+            Hook::IfThenPost => DepHook::IfThenPost,
+            Hook::IfThenElse => DepHook::IfThenElse,
+            Hook::IfThenElsePost => DepHook::IfThenElsePost,
+            Hook::Branch => DepHook::Branch,
+            Hook::BranchIf => DepHook::BranchIf,
+            Hook::BranchTable => DepHook::BranchTable,
+            Hook::Select => DepHook::Select,
+            Hook::Unary => DepHook::Unary,
+            Hook::Binary => DepHook::Binary,
+            Hook::Drop => DepHook::Drop,
+            Hook::Return => DepHook::Return,
+            Hook::Const => DepHook::Const,
+            Hook::Local => DepHook::Local,
+            Hook::Global => DepHook::Global,
+            Hook::Store => DepHook::Store,
+            Hook::Load => DepHook::Load,
+            Hook::MemorySize => DepHook::MemorySize,
+            Hook::MemoryGrow => DepHook::MemoryGrow,
+            Hook::MemoryInit => DepHook::MemoryInit,
+            Hook::MemoryCopy => DepHook::MemoryCopy,
+            Hook::MemoryFill => DepHook::MemoryFill,
+            Hook::BlockPre => DepHook::BlockPre,
+            Hook::BlockPost => DepHook::BlockPost,
+            Hook::LoopPre => DepHook::LoopPre,
+            Hook::LoopPost => DepHook::LoopPost,
+        }
+    }
 }
