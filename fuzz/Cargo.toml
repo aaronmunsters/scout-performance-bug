@@ -1,0 +1,21 @@
+[package]
+name = "scout-performance-bugs-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.scout-performance-bugs]
+path = ".."
+
+[[bin]]
+name = "forward_wastr_charlestr"
+path = "fuzz_targets/forward_wastr_charlestr.rs"
+test = false
+doc = false
+bench = false

@@ -132,7 +132,7 @@ pub fn benchmark(runs: usize) -> Result<()> {
     Ok(())
 }
 
-fn fetch_input_programs() -> anyhow::Result<Vec<(OsString, Vec<u8>)>> {
+pub(crate) fn fetch_input_programs() -> anyhow::Result<Vec<(OsString, Vec<u8>)>> {
     let dir = read_dir("./wasm-r3-bench")?;
     let programs = dir
         .collect::<Result<Vec<_>, _>>()?
